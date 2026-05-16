@@ -326,6 +326,10 @@ PMGRs:
 
 #endif
 
+// many thanks to the nettle guy(s) for finally exporting the drbg_ctr_aes256_update function!
+// LIBNETTLE_MAJOR is not exported, and not sure what to make about the "PACKAGE_VERSION=snapshot" in nettle's gitlab-ci file.
+//#if LIBNETTLE_MAJOR <= 8
+#if NETTLE_VERSION_MAJOR <= 3
 static inline void block16_set(union nettle_block16 *r,
                                const union nettle_block16 *x)
 {
@@ -362,6 +366,7 @@ static void drbg_ctr_aes256_update(struct aes256_ctx *key,
     aes256_set_encrypt_key(key, tmp[0].b);
     block16_set(V, &tmp[2]);
 }
+#endif
 
 static void dump_cpu_handler(void)
 {
@@ -1603,8 +1608,12 @@ static void trng_regs_reg_write(void *opaque, hwaddr addr, uint64_t data,
                 drbg_ctr_aes256_init(&s->ctr_drbg_rng, seed_material);
                 memset(s->fifo, 0, sizeof(s->fifo));
             } else {
+#if NETTLE_VERSION_MAJOR >= 4
+                drbg_ctr_aes256_update(&s->ctr_drbg_rng, seed_material);
+#else
                 drbg_ctr_aes256_update(&s->ctr_drbg_rng.key, &s->ctr_drbg_rng.V,
                                        seed_material);
+#endif
                 drbg_ctr_aes256_random(&s->ctr_drbg_rng, sizeof(s->fifo),
                                        s->fifo);
             }
@@ -4668,10 +4677,17 @@ static int aes_ccm_crypt(struct AppleSSCState *ssc_state, uint16_t kbkdf_index,
     memcpy(&nonce[KBKDF_KEY_SEED_LENGTH], &counter_be, AES_CCM_COUNTER_LENGTH);
     ccm_aes256_set_key(&aes, key);
     if (encrypt) {
+#if NETTLE_VERSION_MAJOR >= 4
+        ccm_aes256_encrypt_message(
+            &aes.cipher, AES_CCM_NONCE_LENGTH, nonce, AES_CCM_AUTH_LENGTH, auth,
+            AES_CCM_TAG_LENGTH, AES_CCM_TAG_LENGTH + payload_len, tmp_out,
+            data);
+#else
         ccm_aes256_encrypt_message(
             &aes, AES_CCM_NONCE_LENGTH, nonce, AES_CCM_AUTH_LENGTH, auth,
             AES_CCM_TAG_LENGTH, AES_CCM_TAG_LENGTH + payload_len, tmp_out,
             data);
+#endif
         // data[0x20]-tag[0x10] => tag[0x10]-data[0x20]
         memcpy(out, &tmp_out[payload_len], AES_CCM_TAG_LENGTH);
         memcpy(&out[AES_CCM_TAG_LENGTH], tmp_out, payload_len);
@@ -4684,9 +4700,15 @@ static int aes_ccm_crypt(struct AppleSSCState *ssc_state, uint16_t kbkdf_index,
                 AES_CCM_TAG_LENGTH + payload_len);
         HEXDUMP("tmp_in__encdata_plus_tag", tmp_in,
                 AES_CCM_TAG_LENGTH + payload_len);
+#if NETTLE_VERSION_MAJOR >= 4
+        status = ccm_aes256_decrypt_message(
+            &aes.cipher, AES_CCM_NONCE_LENGTH, nonce, AES_CCM_AUTH_LENGTH, auth,
+            AES_CCM_TAG_LENGTH, payload_len, tmp_out, tmp_in);
+#else
         status = ccm_aes256_decrypt_message(
             &aes, AES_CCM_NONCE_LENGTH, nonce, AES_CCM_AUTH_LENGTH, auth,
             AES_CCM_TAG_LENGTH, payload_len, tmp_out, tmp_in);
+#endif
         if (!status) {
             DPRINTF("%s: ccm_aes256_decrypt_message: DIGEST INVALID\n",
                     __func__);
@@ -4704,7 +4726,11 @@ static int aes_cmac_prefix_public(uint8_t *key, uint8_t *prefix,
     cmac_aes256_set_key(&ctx, key);
     cmac_aes256_update(&ctx, MSG_PREFIX_LENGTH, prefix);
     cmac_aes256_update(&ctx, SECP384_PUBLIC_XY_SIZE, public0);
+#if NETTLE_VERSION_MAJOR >= 4
+    cmac_aes256_digest(&ctx, digest);
+#else
     cmac_aes256_digest(&ctx, CMAC128_DIGEST_SIZE, digest);
+#endif
     return 0;
 }
 
@@ -4717,7 +4743,11 @@ static int aes_cmac_prefix_public_public(uint8_t *key, uint8_t *prefix,
     cmac_aes256_update(&ctx, MSG_PREFIX_LENGTH, prefix);
     cmac_aes256_update(&ctx, SECP384_PUBLIC_XY_SIZE, public0);
     cmac_aes256_update(&ctx, SECP384_PUBLIC_XY_SIZE, public1);
+#if NETTLE_VERSION_MAJOR >= 4
+    cmac_aes256_digest(&ctx, digest);
+#else
     cmac_aes256_digest(&ctx, CMAC128_DIGEST_SIZE, digest);
+#endif
     return 0;
 }
 
@@ -4741,7 +4771,11 @@ static int kbkdf_generate_key(uint8_t *cmac_key, uint8_t *label,
         cmac_aes256_update(&ctx, 1, (uint8_t *)&zero);
         cmac_aes256_update(&ctx, KBKDF_CMAC_CONTEXT_SIZE, context); // 4 bytes
         cmac_aes256_update(&ctx, KBKDF_CMAC_LENGTH_SIZE, (uint8_t *)&be_len);
+#if NETTLE_VERSION_MAJOR >= 4
+        cmac_aes256_digest(&ctx, digest);
+#else
         cmac_aes256_digest(&ctx, CMAC128_DIGEST_SIZE, digest);
+#endif
         memcpy(&derived[i], digest, MIN(CMAC128_DIGEST_SIZE, length - i));
         counter++;
     }
@@ -4793,9 +4827,9 @@ static int output_ec_pub(struct ecc_point *ecc_pub, uint8_t *pub_xy)
     mpz_inits(temp1, temp2, NULL);
     ecc_point_get(ecc_pub, temp1, temp2);
     mpz_export(&pub_xy[0x00], NULL, 1, 1, 1, 0, temp1);
-    mpz_export(&pub_xy[0x00 + BYTELEN_384], NULL, 1, 1, 1, 0, temp2);
-    HEXDUMP("output_ec_pub: pub_x", &pub_xy[0x00], BYTELEN_384);
-    HEXDUMP("output_ec_pub: pub_y", &pub_xy[0x00 + BYTELEN_384], BYTELEN_384);
+    mpz_export(&pub_xy[0x00 + SHA384_DIGEST_SIZE], NULL, 1, 1, 1, 0, temp2);
+    HEXDUMP("output_ec_pub: pub_x", &pub_xy[0x00], SHA384_DIGEST_SIZE);
+    HEXDUMP("output_ec_pub: pub_y", &pub_xy[0x00 + SHA384_DIGEST_SIZE], SHA384_DIGEST_SIZE);
 
     mpz_clears(temp1, temp2, NULL);
 
@@ -4808,11 +4842,11 @@ static int input_ec_pub(struct ecc_point *ecc_pub, uint8_t *pub_xy)
     mpz_t temp1, temp2;
     int ret = 0;
 
-    HEXDUMP("input_ec_pub: pub_x", &pub_xy[0x00], BYTELEN_384);
-    HEXDUMP("input_ec_pub: pub_y", &pub_xy[0x00 + BYTELEN_384], BYTELEN_384);
+    HEXDUMP("input_ec_pub: pub_x", &pub_xy[0x00], SHA384_DIGEST_SIZE);
+    HEXDUMP("input_ec_pub: pub_y", &pub_xy[0x00 + SHA384_DIGEST_SIZE], SHA384_DIGEST_SIZE);
     mpz_inits(temp1, temp2, NULL);
-    mpz_import(temp1, BYTELEN_384, 1, 1, 1, 0, &pub_xy[0x00]);
-    mpz_import(temp2, BYTELEN_384, 1, 1, 1, 0, &pub_xy[0x00 + BYTELEN_384]);
+    mpz_import(temp1, SHA384_DIGEST_SIZE, 1, 1, 1, 0, &pub_xy[0x00]);
+    mpz_import(temp2, SHA384_DIGEST_SIZE, 1, 1, 1, 0, &pub_xy[0x00 + SHA384_DIGEST_SIZE]);
     ecc_point_init(ecc_pub, ecc);
     ret = ecc_point_set(ecc_pub, temp1, temp2);
 
@@ -4846,8 +4880,12 @@ static int generate_kbkdf_keys(struct AppleSSCState *ssc_state,
     struct hmac_sha256_ctx ctx;
     hmac_sha256_set_key(&ctx, SHA256_DIGEST_SIZE, hmac_key);
     // only the first half is the shared_key
-    hmac_sha256_update(&ctx, BYTELEN_384, shared_key_xy);
+    hmac_sha256_update(&ctx, SHA384_DIGEST_SIZE, shared_key_xy);
+#if NETTLE_VERSION_MAJOR >= 4
+    hmac_sha256_digest(&ctx, derived_key);
+#else
     hmac_sha256_digest(&ctx, SHA256_DIGEST_SIZE, derived_key);
+#endif
     HEXDUMP("generate_kbkdf_keys: derived_key", derived_key,
             SHA256_DIGEST_SIZE);
 
@@ -4865,6 +4903,7 @@ static int generate_kbkdf_keys(struct AppleSSCState *ssc_state,
     return 0;
 }
 
+// this function should be kept, it might be the key to properly accessing SSC.
 static void hkdf_sha256(int salt_len, uint8_t *salt, int info_len,
                         uint8_t *info, int key_len, uint8_t *key, uint8_t *out)
 {
@@ -4872,9 +4911,15 @@ static void hkdf_sha256(int salt_len, uint8_t *salt, int info_len,
     uint8_t prk[SHA256_DIGEST_SIZE];
 
     hmac_sha256_set_key(&ctx, salt_len, salt);
+#if NETTLE_VERSION_MAJOR >= 4
+    hkdf_extract(&ctx, (nettle_hash_update_func *)hmac_sha256_update,
+                 (nettle_hash_digest_func *)hmac_sha256_digest,
+                 key_len, key, prk);
+#else
     hkdf_extract(&ctx, (nettle_hash_update_func *)hmac_sha256_update,
                  (nettle_hash_digest_func *)hmac_sha256_digest,
                  SHA256_DIGEST_SIZE, key_len, key, prk);
+#endif
 
     hmac_sha256_set_key(&ctx, SHA256_DIGEST_SIZE, prk);
     hkdf_expand(&ctx, (nettle_hash_update_func *)hmac_sha256_update,
@@ -4922,7 +4967,7 @@ static void answer_cmd_0x0_init1(struct AppleSSCState *ssc_state,
     DPRINTF("%s: entered function\n", __func__);
     struct ecc_point cmd0_ecpub, ecc_pub;
     struct dsa_signature signature;
-    uint8_t digest[BYTELEN_384] = { 0 };
+    uint8_t digest[SHA384_DIGEST_SIZE] = { 0 };
     uint16_t kbkdf_index = 0; // hardcoded
     struct sha384_ctx ctx;
 
@@ -4971,16 +5016,20 @@ static void answer_cmd_0x0_init1(struct AppleSSCState *ssc_state,
         &response[MSG_PREFIX_LENGTH + SECP384_PUBLIC_XY_SIZE]); // public_xy1
     sha384_update(&ctx, SHA256_DIGEST_SIZE,
                   ssc_state->random_hmac_key); // hmac_key
-    sha384_digest(&ctx, BYTELEN_384, digest);
-    HEXDUMP("answer_cmd_0x0_init1 digest", digest, BYTELEN_384);
+#if NETTLE_VERSION_MAJOR >= 4
+    sha384_digest(&ctx, digest);
+#else
+    sha384_digest(&ctx, SHA384_DIGEST_SIZE, digest);
+#endif
+    HEXDUMP("answer_cmd_0x0_init1 digest", digest, SHA384_DIGEST_SIZE);
     // Using non-deterministic signing here like it's probably supposed to be.
     // Don't want to implement/port deterministic signing.
     ecdsa_sign(&ssc_state->ecc_key_main, &ssc_state->rctx,
-               (nettle_random_func *)knuth_lfib_random, BYTELEN_384, digest,
+               (nettle_random_func *)knuth_lfib_random, SHA384_DIGEST_SIZE, digest,
                &signature);
     mpz_export(&response[MSG_PREFIX_LENGTH + 0x00 + 0x00], NULL, 1, 1, 1, 0,
                signature.r);
-    mpz_export(&response[MSG_PREFIX_LENGTH + 0x00 + BYTELEN_384], NULL, 1, 1, 1,
+    mpz_export(&response[MSG_PREFIX_LENGTH + 0x00 + SHA384_DIGEST_SIZE], NULL, 1, 1, 1,
                0, signature.s);
     dsa_signature_clear(&signature);
 jump_ret0:

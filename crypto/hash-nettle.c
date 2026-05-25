@@ -30,13 +30,16 @@
 #ifdef CONFIG_CRYPTO_SM3
 #include <nettle/sm3.h>
 #endif
+#include <nettle/version.h>
 
 typedef void (*qcrypto_nettle_init)(void *ctx);
 typedef void (*qcrypto_nettle_write)(void *ctx,
                                      size_t len,
                                      const uint8_t *buf);
 typedef void (*qcrypto_nettle_result)(void *ctx,
+#if NETTLE_VERSION_MAJOR <= 3
                                       size_t len,
+#endif
                                       uint8_t *buf);
 
 union qcrypto_hash_ctx {
@@ -177,7 +180,11 @@ int qcrypto_nettle_hash_finalize(QCryptoHash *hash,
         return -1;
     }
 
-    qcrypto_hash_alg_map[hash->alg].result(ctx, *result_len, *result);
+    qcrypto_hash_alg_map[hash->alg].result(ctx,
+#if NETTLE_VERSION_MAJOR <= 3
+            *result_len,
+#endif
+            *result);
 
     return 0;
 }

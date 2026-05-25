@@ -29,12 +29,12 @@
 #include "hw/sysbus.h"
 #include "qom/object.h"
 #include "cpu-qom.h"
-#include "nettle/drbg-ctr.h"
-#include "nettle/ecc.h"
-#include "nettle/knuth-lfib.h"
-#include "nettle/sha2.h"
-#include "stdbool.h"
-#include "stdint.h"
+#include <nettle/drbg-ctr.h>
+#include <nettle/ecc.h>
+#include <nettle/knuth-lfib.h>
+#include <nettle/sha2.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 #define TYPE_APPLE_SEP "apple-sep"
 OBJECT_DECLARE_TYPE(AppleSEPState, AppleSEPClass, APPLE_SEP)

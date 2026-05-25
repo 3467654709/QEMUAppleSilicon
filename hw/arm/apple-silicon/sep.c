@@ -41,15 +41,16 @@
 #include "system/block-backend-global-state.h"
 #include "system/block-backend-io.h"
 #include "system/tcg.h"
-#include "nettle/ccm.h"
-#include "nettle/cmac.h"
-#include "nettle/ecc-curve.h"
-#include "nettle/ecdsa.h"
-#include "nettle/hkdf.h"
-#include "nettle/hmac.h"
 #include "trace.h"
+#include <nettle/ccm.h>
+#include <nettle/cmac.h>
+#include <nettle/ecc-curve.h>
+#include <nettle/ecdsa.h>
+#include <nettle/hkdf.h>
+#include <nettle/hmac.h>
 #include <nettle/macros.h>
 #include <nettle/memxor.h>
+#include <nettle/version.h>
 
 #if 0
 #define HEXDUMP(a, b, c) qemu_hexdump(stderr, a, b, c)

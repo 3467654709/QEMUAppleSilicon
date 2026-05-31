@@ -2039,7 +2039,7 @@ static void t8030_create_lm_backlight(AppleT8030MachineState *t8030)
     i2c = APPLE_I2C(
         object_property_get_link(OBJECT(t8030), "i2c0", &error_fatal));
     i2c_slave_create_simple(i2c->bus, TYPE_APPLE_LM_BACKLIGHT,
-                            *(uint32_t *)prop->data);
+                            *(uint8_t *)prop->data);
 
     child = apple_dt_get_node(t8030->device_tree, "arm-io/i2c2/lm3539-1");
     assert_nonnull(child);
@@ -2049,7 +2049,7 @@ static void t8030_create_lm_backlight(AppleT8030MachineState *t8030)
     i2c = APPLE_I2C(
         object_property_get_link(OBJECT(t8030), "i2c2", &error_fatal));
     i2c_slave_create_simple(i2c->bus, TYPE_APPLE_LM_BACKLIGHT,
-                            *(uint32_t *)prop->data);
+                            *(uint8_t *)prop->data);
 }
 
 static void t8030_create_misc(AppleT8030MachineState *t8030)

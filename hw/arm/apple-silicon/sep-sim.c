@@ -641,10 +641,10 @@ static uint8_t *apple_sep_sim_gen_sks_hash(uint8_t *buf,
     assert_true(qcrypto_hash_supports(QCRYPTO_HASH_ALGO_SHA256));
     uint8_t *hash = NULL;
     size_t hash_len = 0;
-    assert_cmpuint(qcrypto_hash_bytesv(QCRYPTO_HASH_ALGO_SHA256, iov,
-                                       ARRAY_SIZE(iov), &hash, &hash_len,
-                                       &error_fatal),
-                   ==, 0);
+    int ret =
+        qcrypto_hash_bytesv(QCRYPTO_HASH_ALGO_SHA256, iov, ARRAY_SIZE(iov),
+                            &hash, &hash_len, &error_fatal);
+    assert_cmpuint(ret, ==, 0);
     assert_nonnull(hash);
     assert_cmpuint(hash_len, ==, 32);
     return hash;

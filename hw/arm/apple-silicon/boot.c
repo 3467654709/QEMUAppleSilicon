@@ -207,7 +207,6 @@ static const char *REM_PROPS[] = {
 #endif
     "function-dock_parent",
     "function-error_handler",
-    "function-ldcm_bypass_en",
     "function-mcc_ctrl",
     "function-mcc_dataset",
     "function-pmp_control",

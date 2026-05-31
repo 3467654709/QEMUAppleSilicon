@@ -2967,7 +2967,6 @@ static void t8030_init(MachineState *machine)
     t8030_create_roswell(t8030);
     t8030_create_lm_backlight(t8030);
     t8030_create_display_pmu(t8030);
-    t8030_create_misc(t8030);
     t8030_create_display(t8030);
     t8030_create_mt_spi(t8030);
     t8030_create_aop(t8030);
@@ -2977,6 +2976,7 @@ static void t8030_init(MachineState *machine)
     t8030_create_buttons(t8030);
     t8030_create_mipi_dsim(t8030);
     t8030_create_scaler(t8030);
+    t8030_create_misc(t8030);
 
     t8030_create_tempsensor(t8030, "tempsensor0", false);
     t8030_create_tempsensor(t8030, "tempsensor1", false);

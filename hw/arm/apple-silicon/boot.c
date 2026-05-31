@@ -259,15 +259,13 @@ static void apple_boot_process_dt_node(AppleDTNode *node, AppleDTNode *parent)
     GList *iter = NULL;
     AppleDTNode *child = NULL;
     AppleDTProp *prop = NULL;
-    uint64_t count;
     uint64_t i;
     bool found;
 
     if ((prop = apple_dt_get_prop(node, "compatible")) != NULL) {
         assert_nonnull(prop->data);
         found = false;
-        for (count = sizeof(KEEP_COMP) / sizeof(KEEP_COMP[0]), i = 0; i < count;
-             i++) {
+        for (i = 0; i < ARRAY_SIZE(KEEP_COMP); i++) {
             if (memcmp(prop->data, KEEP_COMP[i],
                        MIN(prop->len, sstrlen(KEEP_COMP[i]))) == 0) {
                 found = true;
@@ -277,8 +275,7 @@ static void apple_boot_process_dt_node(AppleDTNode *node, AppleDTNode *parent)
         if (!found) {
             assert_nonnull(parent);
             DINFO(
-                "Removing node `%s` because its compatible property `%s` "
-                "is not whitelisted",
+                "Removing node `%s` (non-whitelisted compatible property `%s`)",
                 apple_dt_get_prop_str_or(node, "name", "(null)", &error_fatal),
                 (char *)prop->data);
             apple_dt_del_node(parent, node);
@@ -288,12 +285,11 @@ static void apple_boot_process_dt_node(AppleDTNode *node, AppleDTNode *parent)
 
     if ((prop = apple_dt_get_prop(node, "name")) != NULL) {
         assert_nonnull(prop->data);
-        for (count = sizeof(REM_NAMES) / sizeof(REM_NAMES[0]), i = 0; i < count;
-             i++) {
+        for (i = 0; i < ARRAY_SIZE(REM_NAMES); i++) {
             uint64_t size = MIN(prop->len, sstrlen(REM_NAMES[i]));
             if (memcmp(prop->data, REM_NAMES[i], size) == 0) {
                 assert_nonnull(parent);
-                DINFO("Removing node `%s` because its name is blacklisted",
+                DINFO("Removing node `%s` (blacklisted name)",
                       (char *)prop->data);
                 apple_dt_del_node(parent, node);
                 return;
@@ -303,13 +299,11 @@ static void apple_boot_process_dt_node(AppleDTNode *node, AppleDTNode *parent)
 
     if ((prop = apple_dt_get_prop(node, "device_type")) != NULL) {
         assert_nonnull(prop->data);
-        for (count = sizeof(REM_DEV_TYPES) / sizeof(REM_DEV_TYPES[0]), i = 0;
-             i < count; i++) {
+        for (i = 0; i < ARRAY_SIZE(REM_DEV_TYPES); i++) {
             uint64_t size = MIN(prop->len, sstrlen(REM_DEV_TYPES[i]));
             if (memcmp(prop->data, REM_DEV_TYPES[i], size) == 0) {
                 assert_nonnull(parent);
-                DINFO("Removing node `%s` because its device type "
-                      "property `%s` is blacklisted",
+                DINFO("Removing node `%s` (blacklisted device type `%s`)",
                       apple_dt_get_prop_str_or(node, "name", "(null)",
                                                &error_fatal),
                       (char *)prop->data);
@@ -319,9 +313,12 @@ static void apple_boot_process_dt_node(AppleDTNode *node, AppleDTNode *parent)
         }
     }
 
-    for (count = sizeof(REM_PROPS) / sizeof(REM_PROPS[0]), i = 0; i < count;
-         i++) {
-        apple_dt_del_prop_named(node, REM_PROPS[i]);
+    for (i = 0; i < ARRAY_SIZE(REM_PROPS); i++) {
+        if (apple_dt_del_prop_named(node, REM_PROPS[i])) {
+            DINFO(
+                "Removing prop `%s` from node `%s`", REM_PROPS[i],
+                apple_dt_get_prop_str_or(node, "name", "(null)", &error_fatal));
+        }
     }
 
     for (iter = node->children; iter != NULL;) {

@@ -399,7 +399,7 @@ static void apple_sep_sim_handle_control_msg(AppleSEPSimState *s,
             ASN1_SUCCESS);
         asn1_node art = NULL;
         assert_cmpuint(asn1_create_element(art_defs, "ART.Header", &art), ==,
-                         ASN1_SUCCESS);
+                       ASN1_SUCCESS);
         uint8_t val = 0;
         asn1_write_value(art, "Version", &val, sizeof(val));
         uint16_t val16 = 0;
@@ -412,7 +412,7 @@ static void apple_sep_sim_handle_control_msg(AppleSEPSimState *s,
         char data[512];
         int data_len = sizeof(data);
         assert_cmpuint(asn1_der_coding(art, "", data, &data_len, error_desc),
-                         ==, ASN1_SUCCESS);
+                       ==, ASN1_SUCCESS);
         asn1_delete_structure(&art);
         asn1_delete_structure(&art_defs);
 
@@ -527,8 +527,7 @@ static void apple_sep_sim_advertise_eps(AppleSEPSimState *s)
 
     a7iop = APPLE_A7IOP(s);
 
-    for (i = 0; i < (sizeof(apple_sep_sim_eps) / sizeof(*apple_sep_sim_eps));
-         i++) {
+    for (i = 0; i < ARRAY_SIZE(apple_sep_sim_eps); i++) {
         msg = g_new0(AppleA7IOPMessage, 1);
         ep_advert_msg = (EPAdvertisementMessage *)msg->data;
         ep_advert_msg->ep = EP_DISCOVERY;
@@ -643,9 +642,9 @@ static uint8_t *apple_sep_sim_gen_sks_hash(uint8_t *buf,
     uint8_t *hash = NULL;
     size_t hash_len = 0;
     assert_cmpuint(qcrypto_hash_bytesv(QCRYPTO_HASH_ALGO_SHA256, iov,
-                                         sizeof(iov) / sizeof(*iov), &hash,
-                                         &hash_len, &error_fatal),
-                     ==, 0);
+                                       ARRAY_SIZE(iov), &hash, &hash_len,
+                                       &error_fatal),
+                   ==, 0);
     assert_nonnull(hash);
     assert_cmpuint(hash_len, ==, 32);
     return hash;

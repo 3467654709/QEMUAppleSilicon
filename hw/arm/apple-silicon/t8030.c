@@ -50,6 +50,7 @@
 #include "hw/misc/apple-silicon/baseband.h"
 #include "hw/misc/apple-silicon/buttons.h"
 #include "hw/misc/apple-silicon/chestnut.h"
+#include "hw/misc/apple-silicon/fan53740.h"
 #include "hw/misc/apple-silicon/mic_tempsensor.h"
 #include "hw/misc/apple-silicon/roswell.h"
 #include "hw/misc/apple-silicon/smc.h"
@@ -2052,6 +2053,22 @@ static void t8030_create_lm_backlight(AppleT8030MachineState *t8030)
                             *(uint8_t *)prop->data);
 }
 
+static void t8030_create_accbuck(AppleT8030MachineState *t8030)
+{
+    AppleDTNode *child;
+    AppleDTProp *prop;
+    AppleI2CState *i2c;
+
+    child = apple_dt_get_node(t8030->device_tree, "arm-io/smc-i2c1/accbuck");
+    assert_nonnull(child);
+
+    prop = apple_dt_get_prop(child, "reg");
+    assert_nonnull(prop);
+    i2c = APPLE_I2C(
+        object_property_get_link(OBJECT(t8030), "smc-i2c1", &error_fatal));
+    i2c_slave_create_simple(i2c->bus, TYPE_FAN53740, *(uint8_t *)prop->data);
+}
+
 static void t8030_create_misc(AppleT8030MachineState *t8030)
 {
     AppleDTNode *armio;
@@ -2976,6 +2993,7 @@ static void t8030_init(MachineState *machine)
     t8030_create_buttons(t8030);
     t8030_create_mipi_dsim(t8030);
     t8030_create_scaler(t8030);
+    t8030_create_accbuck(t8030);
     t8030_create_misc(t8030);
 
     t8030_create_tempsensor(t8030, "tempsensor0", false);

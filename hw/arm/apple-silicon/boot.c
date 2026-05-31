@@ -154,6 +154,7 @@ static const char *KEEP_COMP[] = {
     "aod,t8030\0aod,s5l8960x\0$",
     "mic-temp-sens,ica60\0$",
     "aapl,spmi\0$",
+    "accbuck,fan53740\0$",
 };
 
 static const char *REM_NAMES[] = {

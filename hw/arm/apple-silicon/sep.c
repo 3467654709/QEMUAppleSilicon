@@ -324,7 +324,6 @@ PMGRs:
 0x58: KEY
 0x60: EISP
 0x68: SEPD
-
 #endif
 
 // many thanks to the nettle guy(s) for finally exporting the drbg_ctr_aes256_update function!
@@ -369,6 +368,7 @@ static void drbg_ctr_aes256_update(struct aes256_ctx *key,
 }
 #endif
 
+#ifdef ENABLE_CPU_DUMP_STATE
 static void dump_cpu_handler(void)
 {
     MachineState *machine = MACHINE(qdev_get_machine());
@@ -377,7 +377,9 @@ static void dump_cpu_handler(void)
     assert_nonnull(sep);
     cpu_dump_state(CPU(sep->cpu), stderr, CPU_DUMP_CODE);
 }
+#endif
 
+#ifdef SEP_ENABLE_TRACE_BUFFER
 static void enable_trace_buffer(AppleSEPState *s)
 {
     DPRINTF("SEP_PROGRESS: Enable Trace Buffer: s->shmbuf_base: "
@@ -639,7 +641,9 @@ static void enable_trace_buffer(AppleSEPState *s)
                         sizeof(acl_for_TRAC));
 #endif
 }
+#endif
 
+#ifdef SEP_DISABLE_ASLR
 static void disable_aslr(AppleSEPState *s)
 {
     DPRINTF("SEP_PROGRESS: Disable ASLR\n");
@@ -696,7 +700,9 @@ static void disable_aslr_SYS_ACC_PWR_DN_SAVE(AppleSEPState *s)
     address_space_set(nsas, pwr_dn_save + 0x80, 0, 0x40,
                       MEMTXATTRS_UNSPECIFIED);
 }
+#endif
 
+#ifdef SEP_ENABLE_TRACE_BUFFER
 static const char *
 sepos_return_module_thread_string_t8015(uint64_t module_thread_id)
 {
@@ -1041,6 +1047,14 @@ static void debug_trace_reg_write(void *opaque, hwaddr addr, uint64_t data,
         return;
     }
 
+    if (addr + size > ARRAY_SIZE(s->debug_trace_regs)) {
+        qemu_log_mask(LOG_UNIMP,
+                      "DEBUG_TRACE: Unknown write at 0x" HWADDR_FMT_plx
+                      " of value 0x%" PRIX64 " size=%u\n",
+                      addr, data, size);
+        return;
+    }
+
     offset = ((uint32_t *)s->debug_trace_regs)[0x4 / 4];
     if (offset != 0) {
         offset -= 1;
@@ -1289,6 +1303,13 @@ static void debug_trace_reg_write(void *opaque, hwaddr addr, uint64_t data,
                 tid, tid_str, arg2);
         break;
     case 0x82140324: // SEP_Driver__Mailbox_Rx
+        if (offset + 0x90 + sizeof(uint32_t) > ARRAY_SIZE(s->debug_trace_regs)) {
+            DPRINTF("DEBUG_TRACE: Description: tid: 0x%05" PRIX64 "/%s: "
+                    "SEP_Driver__Mailbox_Rx:"
+                    " INVALID OFFSET!\n",
+                    tid, tid_str);
+            break;
+        }
         memcpy((void *)&m + 0x00, &s->debug_trace_regs[offset + 0x88],
                sizeof(uint32_t));
         memcpy((void *)&m + 0x04, &s->debug_trace_regs[offset + 0x90],
@@ -1442,7 +1463,7 @@ static const MemoryRegionOps debug_trace_reg_ops = {
     .impl.max_access_size = 8,
     .valid.unaligned = false,
 };
-
+#endif
 
 #define REG_TRNG_INOUT_START (0x00)
 #define REG_TRNG_INOUT_END (0x0C)
@@ -2412,13 +2433,17 @@ static QCryptoCipherAlgo get_aes_cipher_alg(uint32_t flags)
     }
 }
 
+/*
+ * @param size Size in dwords
+ */
 static void xor_32bit_value(uint8_t *dest, uint32_t val, int size)
-{ // size in dwords
-    // TODO: ASAN complains about uint32_t*, wants uint16_t* or even uint8_t* ;;
-    // was most likely about two single bool's between array, probably fixed.
-    uint32_t *ptr = (uint32_t *)dest;
+{ 
+    __attribute__((may_alias)) uint32_t *ptr = (uint32_t *)dest;
+    uint32_t tmp;
     for (int i = 0; i < size; i++) {
-        *ptr++ ^= val;
+        memcpy(&tmp, ptr + i, sizeof(tmp));
+        tmp ^= val;
+        memcpy(ptr + i, &tmp, sizeof(tmp));
     }
 }
 
@@ -2477,8 +2502,8 @@ static void aess_keywrap_uid(AppleAESSState *s, uint8_t *in, uint8_t *out,
     cipher = qcrypto_cipher_new(cipher_alg, QCRYPTO_CIPHER_MODE_CBC, used_key,
                                 key_len, &error_abort);
     assert_nonnull(cipher);
-    uint8_t iv[0x10] = { 0 };
-    qcrypto_cipher_setiv(cipher, iv, sizeof(iv), &error_abort);
+    // uint8_t iv[0x10] = { 0 };
+    // qcrypto_cipher_setiv(cipher, iv, sizeof(iv), &error_abort);
     uint8_t enc_temp[0x20] = { 0 };
     memcpy(enc_temp, in, sizeof(enc_temp));
 
@@ -2699,10 +2724,6 @@ static void aess_handle_cmd(AppleAESSState *s)
             memcpy(in, s->in_dec, sizeof(in));
         }
         if (zero_iv_two_blocks_encryption) {
-            memset(iv, 0, sizeof(iv));
-            qcrypto_cipher_setiv(
-                cipher, iv, sizeof(iv),
-                &error_abort); // sizeof(iv) == 0x10 on 256 and 128
             qcrypto_cipher_encrypt(cipher, s->in_full, s->out_full,
                                    sizeof(s->in_full), &error_abort);
             // if ((cmd & 0xF) == 0x9)
@@ -3789,6 +3810,7 @@ static void progress_reg_write(void *opaque, hwaddr addr, uint64_t data,
                         s->mailbox->role, data, shmbuf_base, sep_msg.ep,
                         sep_msg.tag, sep_msg.op, sep_msg.op, sep_msg.param,
                         sep_msg.data);
+#ifdef SEP_ENABLE_TRACE_BUFFER
                 int debug_trace_mmio_index = -1;
                 if (s->chip_id == 0x8015) {
                     debug_trace_mmio_index = 11;
@@ -3806,6 +3828,7 @@ static void progress_reg_write(void *opaque, hwaddr addr, uint64_t data,
                     // probably still should.
                     // _endif
                 }
+#endif
             }
         }
 #endif
@@ -3976,7 +3999,8 @@ static const MemoryRegionOps progress_reg_ops = {
     .valid.unaligned = false,
 };
 
-static void apple_sep_cpu_moni_reset_regs(CPUState *cpu, hwaddr load_addr, hwaddr pwr_dn_save)
+static void apple_sep_cpu_moni_reset_regs(CPUState *cpu, hwaddr load_addr,
+                                          hwaddr pwr_dn_save)
 {
     ARMCPU *arm_cpu = container_of(cpu, ARMCPU, parent_obj);
     AppleA13State *acpu = container_of(arm_cpu, AppleA13State, parent_obj);
@@ -4134,6 +4158,7 @@ AppleSEPState *apple_sep_from_node(AppleDTNode *node, MemoryRegion *ool_mr,
     s->modern = modern;
     s->chip_id = chip_id;
 
+#ifdef SEP_ENABLE_TRACE_BUFFER
     if (s->chip_id >= 0x8020) {
         if (s->chip_id == 0x8020) {
             assert_not_reached();
@@ -4152,12 +4177,14 @@ AppleSEPState *apple_sep_from_node(AppleDTNode *node, MemoryRegion *ool_mr,
     } else {
         assert_not_reached();
     }
+#endif
 
     MemoryRegion *mr0 = g_new0(MemoryRegion, 1);
     memory_region_init_alias(mr0, OBJECT(s), "sep_dma", ool_mr, 0,
                              SEP_DMA_MAPPING_SIZE);
     if (modern) {
-        s->cpu = &apple_a13_create("sep-cpu", cpu_id, BIT_ULL(30), -1, 'S')->parent_obj;
+        s->cpu = &apple_a13_create("sep-cpu", cpu_id, BIT_ULL(30), -1, 'S')
+                      ->parent_obj;
         memory_region_add_subregion(&APPLE_A13(s->cpu)->memory, 0, mr0);
     } else {
         s->cpu = &apple_a9_create("sep-cpu", cpu_id, BIT_ULL(30))->parent_obj;
@@ -4237,10 +4264,12 @@ AppleSEPState *apple_sep_from_node(AppleDTNode *node, MemoryRegion *ool_mr,
                           &boot_monitor_reg_ops, s, "sep.boot_monitor",
                           BOOT_MONITOR_REG_SIZE);
     sysbus_init_mmio(sbd, &s->boot_monitor_mr);
+#ifdef SEP_ENABLE_TRACE_BUFFER
     // TODO: Let's think about something for T8015
     memory_region_init_io(&s->debug_trace_mr, OBJECT(dev), &debug_trace_reg_ops,
                           s, "sep.debug_trace",
                           s->debug_trace_size); // Debug trace printing
+#endif
 #ifdef SEP_ENABLE_DEBUG_TRACE_MAPPING
     if (s->chip_id >= 0x8020) {
         if (modern) {
@@ -4509,7 +4538,9 @@ static void apple_sep_reset_hold(Object *obj, ResetType type)
     memset(s->misc2_regs, 0, sizeof(s->misc2_regs));
     memset(s->progress_regs, 0, sizeof(s->progress_regs));
     memset(s->boot_monitor_regs, 0, sizeof(s->boot_monitor_regs));
+#ifdef SEP_ENABLE_TRACE_BUFFER
     memset(s->debug_trace_regs, 0, sizeof(s->debug_trace_regs));
+#endif
 
     aess_reset(&s->aess_state);
     aesh_reset(&s->aesh_state);
@@ -4621,19 +4652,31 @@ static uint8_t INFOSTR_AKE_SESSIONSEED[] = "AKE_SessionSeed\n";
 static uint8_t INFOSTR_AKE_MACKEY[] = "AKE_MACKey\n\n\n\n\n\n";
 static uint8_t INFOSTR_AKE_EXTRACTORKEY[] = "AKE_ExtractorKey";
 
+#if 0
+#define is_keyslot_valid(_ssc_state, _kbkdf_index) is_keyslot_valid_(__func__, _ssc_state, _kbkdf_index)
+
+static bool is_keyslot_valid_(const char* func, struct AppleSSCState *ssc_state,
+                             uint16_t kbkdf_index)
+#else
 static bool is_keyslot_valid(struct AppleSSCState *ssc_state,
                              uint16_t kbkdf_index)
+#endif
 {
     bool ret;
 
-    ret = !buffer_is_zero(&ssc_state->ecc_keys[kbkdf_index],
-                          sizeof(struct ecc_scalar));
-    ret &= !buffer_is_zero(&ssc_state->kbkdf_keys[kbkdf_index],
-                           sizeof(ssc_state->kbkdf_keys[kbkdf_index]));
+    if (kbkdf_index >= KBKDF_KEY_MAX_SLOTS) {
+        DPRINTF("%s: kbkdf_index over limit: %u\n", func, kbkdf_index);
+        ret = false;
+    } else {
+        ret = !buffer_is_zero(&ssc_state->ecc_keys[kbkdf_index],
+                              sizeof(struct ecc_scalar));
+        ret &= !buffer_is_zero(&ssc_state->kbkdf_keys[kbkdf_index],
+                               sizeof(ssc_state->kbkdf_keys[kbkdf_index]));
+    }
 
     DPRINTF("%s: kbkdf_index: %d ; ecc_keys_item_size: 0x%lX ; "
             "kbkdf_keys_item_size: 0x%lX\n",
-            __func__, kbkdf_index, sizeof(struct ecc_scalar),
+            func, kbkdf_index, sizeof(struct ecc_scalar),
             sizeof(ssc_state->kbkdf_keys[kbkdf_index]));
     return ret;
 }
@@ -4642,6 +4685,9 @@ static int aes_ccm_crypt(struct AppleSSCState *ssc_state, uint16_t kbkdf_index,
                          uint8_t *prefix, int payload_len, uint8_t *data,
                          uint8_t *out, int encrypt, int response_key)
 {
+    assert_cmpuint(payload_len, >=, 0);
+    assert_cmpuint(payload_len, <=, AES_CCM_MAX_DATA_LENGTH - AES_CCM_TAG_LENGTH);
+
     struct ccm_aes256_ctx aes;
     uint32_t counter_be = cpu_to_be32(ssc_state->kbkdf_counter[kbkdf_index]);
     uint8_t nonce[AES_CCM_NONCE_LENGTH] = { 0 };
@@ -4762,11 +4808,10 @@ static int kbkdf_generate_key(uint8_t *cmac_key, uint8_t *label,
     int counter = 1;
     uint16_t be_len = cpu_to_be16(length * 8);
     uint8_t zero = 0;
-    cmac_aes256_set_key(&ctx, cmac_key);
 
     for (size_t i = 0; i < length; i += CMAC128_DIGEST_SIZE) {
-        uint16_t be_cnt = 0;
-        be_cnt = cpu_to_be16(counter);
+        cmac_aes256_set_key(&ctx, cmac_key);
+        uint16_t be_cnt = cpu_to_be16(counter);
         cmac_aes256_update(&ctx, KBKDF_CMAC_LENGTH_SIZE, (uint8_t *)&be_cnt);
         cmac_aes256_update(&ctx, KBKDF_CMAC_LABEL_SIZE, label); // 0x10 bytes
         cmac_aes256_update(&ctx, 1, (uint8_t *)&zero);
@@ -4807,10 +4852,17 @@ static int generate_ec_priv(struct AppleSSCState *ssc_state, const char *priv,
         ecdsa_generate_keypair(ecc_pub, ecc_key, &ssc_state->rctx,
                                (nettle_random_func *)knuth_lfib_random);
     } else {
-        mpz_init_set_str(temp1, priv, 16);
+        if (mpz_init_set_str(temp1, priv, 16) != 0) {
+            mpz_clear(temp1);
+            ecc_point_clear(ecc_pub);
+            clear_ecc_scalar(ecc_key);
+            return -1;
+        }
         mpz_add_ui(temp1, temp1, 1);
         if (ecc_scalar_set(ecc_key, temp1) == 0) {
             mpz_clear(temp1);
+            ecc_point_clear(ecc_pub);
+            clear_ecc_scalar(ecc_key);
             return -1;
         }
         mpz_clear(temp1);
@@ -4830,7 +4882,8 @@ static int output_ec_pub(struct ecc_point *ecc_pub, uint8_t *pub_xy)
     mpz_export(&pub_xy[0x00], NULL, 1, 1, 1, 0, temp1);
     mpz_export(&pub_xy[0x00 + SHA384_DIGEST_SIZE], NULL, 1, 1, 1, 0, temp2);
     HEXDUMP("output_ec_pub: pub_x", &pub_xy[0x00], SHA384_DIGEST_SIZE);
-    HEXDUMP("output_ec_pub: pub_y", &pub_xy[0x00 + SHA384_DIGEST_SIZE], SHA384_DIGEST_SIZE);
+    HEXDUMP("output_ec_pub: pub_y", &pub_xy[0x00 + SHA384_DIGEST_SIZE],
+            SHA384_DIGEST_SIZE);
 
     mpz_clears(temp1, temp2, NULL);
 
@@ -4844,10 +4897,12 @@ static int input_ec_pub(struct ecc_point *ecc_pub, uint8_t *pub_xy)
     int ret = 0;
 
     HEXDUMP("input_ec_pub: pub_x", &pub_xy[0x00], SHA384_DIGEST_SIZE);
-    HEXDUMP("input_ec_pub: pub_y", &pub_xy[0x00 + SHA384_DIGEST_SIZE], SHA384_DIGEST_SIZE);
+    HEXDUMP("input_ec_pub: pub_y", &pub_xy[0x00 + SHA384_DIGEST_SIZE],
+            SHA384_DIGEST_SIZE);
     mpz_inits(temp1, temp2, NULL);
     mpz_import(temp1, SHA384_DIGEST_SIZE, 1, 1, 1, 0, &pub_xy[0x00]);
-    mpz_import(temp2, SHA384_DIGEST_SIZE, 1, 1, 1, 0, &pub_xy[0x00 + SHA384_DIGEST_SIZE]);
+    mpz_import(temp2, SHA384_DIGEST_SIZE, 1, 1, 1, 0,
+               &pub_xy[0x00 + SHA384_DIGEST_SIZE]);
     ecc_point_init(ecc_pub, ecc);
     ret = ecc_point_set(ecc_pub, temp1, temp2);
 
@@ -4893,7 +4948,7 @@ static int generate_kbkdf_keys(struct AppleSSCState *ssc_state,
     int err = kbkdf_generate_key(derived_key, label, context,
                                  ssc_state->kbkdf_keys[kbkdf_index],
                                  KBKDF_CMAC_OUTPUT_LEN);
-    if (err) {
+    if (err != 0) {
         DPRINTF("error: kbkdf_generate_key returned non-zero\n");
         return err;
     }
@@ -4914,8 +4969,8 @@ static void hkdf_sha256(int salt_len, uint8_t *salt, int info_len,
     hmac_sha256_set_key(&ctx, salt_len, salt);
 #if NETTLE_VERSION_MAJOR >= 4
     hkdf_extract(&ctx, (nettle_hash_update_func *)hmac_sha256_update,
-                 (nettle_hash_digest_func *)hmac_sha256_digest,
-                 key_len, key, prk);
+                 (nettle_hash_digest_func *)hmac_sha256_digest, key_len, key,
+                 prk);
 #else
     hkdf_extract(&ctx, (nettle_hash_update_func *)hmac_sha256_update,
                  (nettle_hash_digest_func *)hmac_sha256_digest,
@@ -4972,8 +5027,6 @@ static void answer_cmd_0x0_init1(struct AppleSSCState *ssc_state,
     uint16_t kbkdf_index = 0; // hardcoded
     struct sha384_ctx ctx;
 
-    dsa_signature_init(&signature);
-
     if (is_keyslot_valid(ssc_state, kbkdf_index)) { // shouldn't already exist
         qemu_log_mask(LOG_GUEST_ERROR, "%s: invalid kbkdf_index: %u\n",
                       __func__, kbkdf_index);
@@ -5025,13 +5078,14 @@ static void answer_cmd_0x0_init1(struct AppleSSCState *ssc_state,
     HEXDUMP("answer_cmd_0x0_init1 digest", digest, SHA384_DIGEST_SIZE);
     // Using non-deterministic signing here like it's probably supposed to be.
     // Don't want to implement/port deterministic signing.
+    dsa_signature_init(&signature);
     ecdsa_sign(&ssc_state->ecc_key_main, &ssc_state->rctx,
-               (nettle_random_func *)knuth_lfib_random, SHA384_DIGEST_SIZE, digest,
-               &signature);
+               (nettle_random_func *)knuth_lfib_random, SHA384_DIGEST_SIZE,
+               digest, &signature);
     mpz_export(&response[MSG_PREFIX_LENGTH + 0x00 + 0x00], NULL, 1, 1, 1, 0,
                signature.r);
-    mpz_export(&response[MSG_PREFIX_LENGTH + 0x00 + SHA384_DIGEST_SIZE], NULL, 1, 1, 1,
-               0, signature.s);
+    mpz_export(&response[MSG_PREFIX_LENGTH + 0x00 + SHA384_DIGEST_SIZE], NULL,
+               1, 1, 1, 0, signature.s);
     dsa_signature_clear(&signature);
 jump_ret0:
     ecc_point_clear(&ecc_pub);
@@ -5056,12 +5110,6 @@ static void answer_cmd_0x1_connect_sp(struct AppleSSCState *ssc_state,
             SECP384_PUBLIC_XY_SIZE);
     HEXDUMP("answer_cmd_0x1_connect_sp: cmac_req_should", cmac_req_should,
             AES_BLOCK_SIZE);
-    if (kbkdf_index >= KBKDF_KEY_MAX_SLOTS) {
-        DPRINTF("%s: kbkdf_index over limit: %u\n", __func__, kbkdf_index);
-        do_response_prefix(request, response,
-                           SSC_RESPONSE_FLAG_COMMAND_OR_FIELD_INVALID);
-        return;
-    }
     if (is_keyslot_valid(ssc_state, kbkdf_index)) { // shouldn't already exist
         DPRINTF("%s: invalid kbkdf_index: %u\n", __func__, kbkdf_index);
         do_response_prefix(request, response,
@@ -5156,8 +5204,7 @@ static void answer_cmd_0x3_metadata_write(struct AppleSSCState *ssc_state,
                            SSC_RESPONSE_FLAG_COMMAND_OR_FIELD_INVALID);
         return;
     }
-    if (kbkdf_index_key >= KBKDF_KEY_MAX_SLOTS ||
-        !is_keyslot_valid(ssc_state, kbkdf_index_key)) {
+    if (!is_keyslot_valid(ssc_state, kbkdf_index_key)) {
         DPRINTF("%s: invalid kbkdf_index_key: %u\n", __func__, kbkdf_index_key);
         do_response_prefix(request, response,
                            SSC_RESPONSE_FLAG_KEYSLOT_INVALID);
@@ -5233,8 +5280,7 @@ static void answer_cmd_0x4_metadata_data_read(struct AppleSSCState *ssc_state,
                            SSC_RESPONSE_FLAG_COMMAND_OR_FIELD_INVALID);
         return;
     }
-    if (kbkdf_index == 0 || kbkdf_index >= KBKDF_KEY_MAX_SLOTS ||
-        !is_keyslot_valid(ssc_state, kbkdf_index)) {
+    if (kbkdf_index == 0 || !is_keyslot_valid(ssc_state, kbkdf_index)) {
         DPRINTF("%s: invalid kbkdf_index: %u\n", __func__, kbkdf_index);
         do_response_prefix(request, response,
                            SSC_RESPONSE_FLAG_KEYSLOT_INVALID);
@@ -5287,8 +5333,7 @@ static void answer_cmd_0x5_metadata_data_write(struct AppleSSCState *ssc_state,
                            SSC_RESPONSE_FLAG_COMMAND_OR_FIELD_INVALID);
         return;
     }
-    if (kbkdf_index == 0 || kbkdf_index >= KBKDF_KEY_MAX_SLOTS ||
-        !is_keyslot_valid(ssc_state, kbkdf_index)) {
+    if (kbkdf_index == 0 || !is_keyslot_valid(ssc_state, kbkdf_index)) {
         DPRINTF("%s: invalid kbkdf_index: %u\n", __func__, kbkdf_index);
         do_response_prefix(request, response,
                            SSC_RESPONSE_FLAG_KEYSLOT_INVALID);
@@ -5344,8 +5389,7 @@ static void answer_cmd_0x6_metadata_read(struct AppleSSCState *ssc_state,
                            SSC_RESPONSE_FLAG_COMMAND_OR_FIELD_INVALID);
         return;
     }
-    if (kbkdf_index_key >= KBKDF_KEY_MAX_SLOTS ||
-        !is_keyslot_valid(ssc_state, kbkdf_index_key)) {
+    if (!is_keyslot_valid(ssc_state, kbkdf_index_key)) {
         DPRINTF("%s: invalid kbkdf_index_key: %u\n", __func__, kbkdf_index_key);
         do_response_prefix(request, response,
                            SSC_RESPONSE_FLAG_KEYSLOT_INVALID);

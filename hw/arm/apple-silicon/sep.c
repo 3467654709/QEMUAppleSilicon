@@ -2438,12 +2438,11 @@ static QCryptoCipherAlgo get_aes_cipher_alg(uint32_t flags)
  */
 static void xor_32bit_value(uint8_t *dest, uint32_t val, int size)
 { 
-    __attribute__((may_alias)) uint32_t *ptr = (uint32_t *)dest;
     uint32_t tmp;
     for (int i = 0; i < size; i++) {
-        memcpy(&tmp, ptr + i, sizeof(tmp));
+        memcpy(&tmp, dest + i * 4, sizeof(tmp));
         tmp ^= val;
-        memcpy(ptr + i, &tmp, sizeof(tmp));
+        memcpy(dest + i * 4, &tmp, sizeof(tmp));
     }
 }
 

@@ -1980,12 +1980,9 @@ if not get_option('libdaxctl').auto() or have_system
   libdaxctl = dependency('libdaxctl', required: get_option('libdaxctl'),
                          version: '>=57', method: 'pkg-config')
 endif
-tasn1 = not_found
-if gnutls.found()
-  tasn1 = dependency('libtasn1',
-                     required: false,
-                     method: 'pkg-config')
-endif
+tasn1 = dependency('libtasn1',
+                   required: false,
+                   method: 'pkg-config')
 keyutils = not_found
 if not get_option('libkeyutils').auto() or have_block
   keyutils = dependency('libkeyutils', required: get_option('libkeyutils'),

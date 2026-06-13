@@ -1981,7 +1981,7 @@ if not get_option('libdaxctl').auto() or have_system
                          version: '>=57', method: 'pkg-config')
 endif
 tasn1 = dependency('libtasn1',
-                   required: false,
+                   required: true,
                    method: 'pkg-config')
 keyutils = not_found
 if not get_option('libkeyutils').auto() or have_block

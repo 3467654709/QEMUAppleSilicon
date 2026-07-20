@@ -180,7 +180,7 @@ static int usb_tcp_remote_read(USBTCPRemoteState *s, void *buffer,
                                unsigned int length)
 {
     int ret = 0;
-    int n = 0;
+    unsigned int n = 0;
     bool locked = bql_locked();
     if (locked) {
         bql_unlock();
@@ -210,7 +210,7 @@ static int usb_tcp_remote_write(USBTCPRemoteState *s, void *buffer,
                                 unsigned int length)
 {
     int ret = 0;
-    int n = 0;
+    unsigned int n = 0;
 
     while (n < length) {
         ret = send(s->fd, (char *)buffer + n, length - n, 0);
@@ -229,7 +229,7 @@ static bool usb_tcp_remote_read_one(USBTCPRemoteState *s)
 {
     tcp_usb_header_t hdr = { 0 };
 
-    if (usb_tcp_remote_read(s, &hdr, sizeof(hdr)) < sizeof(hdr)) {
+    if (usb_tcp_remote_read(s, &hdr, sizeof(hdr)) != sizeof(hdr)) {
         return false;
     }
 
@@ -240,7 +240,7 @@ static bool usb_tcp_remote_read_one(USBTCPRemoteState *s)
         USBTCPInflightPacket *pkt = NULL;
         bool cancelled = false;
 
-        if (usb_tcp_remote_read(s, &rhdr, sizeof(rhdr)) < sizeof(rhdr)) {
+        if (usb_tcp_remote_read(s, &rhdr, sizeof(rhdr)) != sizeof(rhdr)) {
             return false;
         }
 
@@ -759,12 +759,12 @@ static void usb_tcp_remote_handle_packet(USBDevice *dev, USBPacket *p)
 
     WITH_QEMU_LOCK_GUARD(&s->request_mutex)
     {
-        if (usb_tcp_remote_write(s, &hdr, sizeof(hdr)) < sizeof(hdr)) {
+        if (usb_tcp_remote_write(s, &hdr, sizeof(hdr)) != sizeof(hdr)) {
             p->status = USB_RET_STALL;
             goto out;
         }
 
-        if (usb_tcp_remote_write(s, &pkt, sizeof(pkt)) < sizeof(pkt)) {
+        if (usb_tcp_remote_write(s, &pkt, sizeof(pkt)) != sizeof(pkt)) {
             p->status = USB_RET_STALL;
             goto out;
         }

@@ -83,7 +83,6 @@ static void usb_tcp_remote_clean_completed_queue(USBTCPRemoteState *s)
     while (!QTAILQ_EMPTY(&s->completed_queue)) {
         p = QTAILQ_FIRST(&s->completed_queue);
         QTAILQ_REMOVE(&s->completed_queue, p, queue);
-        p->p->status = USB_RET_STALL;
         if (p->p->status == USB_RET_REMOVE_FROM_QUEUE) {
             dev->port->ops->complete(dev->port, p->p);
         } else {
